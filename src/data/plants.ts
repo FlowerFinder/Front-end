@@ -2,6 +2,7 @@
 
 import type { Plant } from '@/types';
 import { allPlants as extendedPlants } from './plants-extended';
+import { extraPlants } from './plants-extra';
 
 // Plantas base
 const basePlants: Plant[] = [
@@ -606,7 +607,7 @@ const basePlants: Plant[] = [
 ];
 
 // Combinar plantas base com plantas estendidas
-export const plants: Plant[] = [...basePlants, ...extendedPlants];
+export const plants: Plant[] = [...basePlants, ...extendedPlants, ...extraPlants];
 
 // Função para obter plantas por tenant
 export function getPlantsByTenant(tenantId: string): Plant[] {

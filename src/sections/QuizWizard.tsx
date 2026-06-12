@@ -9,6 +9,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Slider } from '@/components/ui/slider';
+import { TenantBrand } from '@/components/TenantBrand';
 import { cn } from '@/lib/utils';
 import { plantCategories, careLevels, environmentTypes } from '@/data/plants';
 
@@ -126,7 +127,8 @@ export function QuizWizard() {
               <ArrowLeft className="w-4 h-4" />
               Voltar
             </Button>
-            <span 
+            <TenantBrand />
+            <span
               className="text-sm font-medium"
               style={{ color: tenant.theme.colors.textMuted }}
             >

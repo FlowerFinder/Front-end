@@ -1,4 +1,5 @@
 import { useTenant } from '@/contexts/TenantContext';
+import { TenantBrand } from '@/components/TenantBrand';
 import { Bot, ListChecks, ArrowRight, Sparkles, MessageCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -22,7 +23,7 @@ export function ModeSelection() {
     >
       {/* Header */}
       <header className="w-full px-4 sm:px-6 lg:px-8 py-4">
-        <div className="max-w-2xl mx-auto">
+        <div className="max-w-2xl mx-auto flex items-center justify-between">
           <Button
             variant="ghost"
             size="sm"
@@ -30,6 +31,7 @@ export function ModeSelection() {
           >
             ← Voltar
           </Button>
+          <TenantBrand />
         </div>
       </header>
 

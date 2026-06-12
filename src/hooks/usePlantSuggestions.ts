@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo } from 'react';
 import type { Plant, UserPreferences, SuggestionResult, CareLevel, EnvironmentType } from '@/types';
-import { getPlantsByTenant } from '@/data/plants';
-import { useClimateFromLocation } from './useGeolocation';
+import { fetchPlantsByTenant } from '@/lib/db';
+import { climateForCity } from './useGeolocation';
 
 interface UsePlantSuggestionsReturn {
   suggestions: SuggestionResult[];
@@ -27,19 +27,38 @@ export function usePlantSuggestions(): UsePlantSuggestionsReturn {
   const [error, setError] = useState<string | null>(null);
   const [sortType, setSortType] = useState<'relevance' | 'price-asc' | 'price-desc' | 'name'>('relevance');
 
-  const climate = useClimateFromLocation(suggestions[0]?.plant.tenantId || null);
-
   const generateSuggestions = useCallback((preferences: UserPreferences, tenantId: string) => {
     setIsLoading(true);
     setError(null);
 
-    // Simular delay de processamento da IA
-    setTimeout(() => {
+    // Clima da cidade do usuário (antes era passado o tenantId por engano,
+    // o que fazia o bônus de clima valer sempre como "tropical")
+    const climate = climateForCity(preferences.city);
+
+    // Consulta real: DuckDB-WASM lê o parquet servido em /data/
+    (async () => {
       try {
-        const plants = getPlantsByTenant(tenantId);
+        const plants = await fetchPlantsByTenant(tenantId);
         const results: SuggestionResult[] = [];
 
+        // Faixa de preço é filtro de verdade, não só pontuação.
+        // Slider no máximo (R$ 500) significa "R$ 500+", ou seja, sem teto.
+        const [budgetMin, budgetMax] = preferences.budgetRange ?? [0, Infinity];
+        const effectiveMax = budgetMax >= 500 ? Infinity : budgetMax;
+
+        // Sem preferências (ex.: entrou direto pela vitrine via chat),
+        // mostra o catálogo inteiro em vez de zerar tudo no corte de score.
+        const hasPrefs = Boolean(
+          preferences.environment ||
+            preferences.careLevel ||
+            preferences.petFriendly !== null ||
+            preferences.categories.length > 0 ||
+            preferences.budgetRange
+        );
+
         for (const plant of plants) {
+          if (plant.price < budgetMin || plant.price > effectiveMax) continue;
+
           let score = 0;
           const reasons: string[] = [];
 
@@ -128,7 +147,13 @@ export function usePlantSuggestions(): UsePlantSuggestionsReturn {
           // Normalizar score para 0-100
           const normalizedScore = Math.min(100, Math.max(0, score));
 
-          if (normalizedScore > 20) { // Só inclui plantas com alguma correspondência
+          if (!hasPrefs) {
+            results.push({
+              plant,
+              matchScore: Math.min(100, 60 + score),
+              matchReasons: ['Disponível na loja'],
+            });
+          } else if (normalizedScore > 20) { // Só inclui plantas com alguma correspondência
             results.push({
               plant,
               matchScore: normalizedScore,
@@ -143,11 +168,12 @@ export function usePlantSuggestions(): UsePlantSuggestionsReturn {
         setSuggestions(results);
         setIsLoading(false);
       } catch (err) {
+        console.error('Erro ao consultar o banco de plantas:', err);
         setError('Erro ao gerar sugestões. Tente novamente.');
         setIsLoading(false);
       }
-    }, 1500); // Delay de 1.5s para simular processamento
-  }, [climate]);
+    })();
+  }, []);
 
   const filterByCategory = useCallback((category: string | null): SuggestionResult[] => {
     if (!category) return suggestions;
