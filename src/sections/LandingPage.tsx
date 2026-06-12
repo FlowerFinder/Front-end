@@ -278,11 +278,24 @@ export function LandingPage() {
       </main>
 
       {/* Footer */}
-      <footer 
-        className="w-full px-4 sm:px-6 lg:px-8 py-4 text-center text-sm"
-        style={{ color: tenant.theme.colors.textMuted }}
+      <footer
+        className="w-full px-4 sm:px-6 lg:px-8 py-6 text-center text-sm space-y-2"
+        style={{
+          color: tenant.theme.colors.textMuted,
+          borderTop: `1px solid ${tenant.theme.colors.border}`,
+        }}
       >
-        <p>© 2024 {tenant.name} - Todos os direitos reservados</p>
+        <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-xs">
+          <span>{tenant.contact.address}</span>
+          <span>{tenant.contact.phone}</span>
+          <span>{tenant.contact.workingHours}</span>
+          {tenant.contact.socialMedia?.instagram && (
+            <span>{tenant.contact.socialMedia.instagram}</span>
+          )}
+        </div>
+        <p>
+          © {new Date().getFullYear()} {tenant.name} — Todos os direitos reservados
+        </p>
       </footer>
     </div>
   );

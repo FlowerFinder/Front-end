@@ -4,7 +4,7 @@ import type { TenantConfig } from '@/types';
 
 export const defaultTenant: TenantConfig = {
   id: 'default',
-  name: 'FloraConcierge',
+  name: 'FlowerFinder',
   logo: '/logos/default-logo.svg',
   theme: {
     colors: {
@@ -39,13 +39,13 @@ export const defaultTenant: TenantConfig = {
   contact: {
     phone: '(11) 99999-9999',
     whatsapp: '(11) 99999-9999',
-    email: 'contato@floraconcierge.com.br',
+    email: 'contato@flowerfinder.com.br',
     address: 'Av. das Flores, 123 - São Paulo, SP',
     workingHours: 'Seg-Sáb: 8h às 18h',
     socialMedia: {
-      instagram: '@floraconcierge',
-      facebook: 'floraconcierge',
-      website: 'www.floraconcierge.com.br',
+      instagram: '@flowerfinder',
+      facebook: 'flowerfinder',
+      website: 'www.flowerfinder.com.br',
     },
   },
   features: {

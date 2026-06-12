@@ -198,10 +198,10 @@ function getMockLocationFromCoordinates(lat: number, lng: number): { city: strin
   return mockLocations['sao-paulo'];
 }
 
-// Hook para detectar clima baseado na localização
-export function useClimateFromLocation(location: string | null): string {
-  if (!location) return 'tropical';
-  
+// Clima por cidade (função pura — usável fora de componentes/hooks)
+export function climateForCity(city: string | null | undefined): string {
+  if (!city) return 'tropical';
+
   const climateMap: Record<string, string> = {
     'São Paulo': 'subtropical',
     'Sorocaba': 'subtropical',
@@ -212,6 +212,21 @@ export function useClimateFromLocation(location: string | null): string {
     'Salvador': 'tropical',
     'Brasília': 'tropical',
   };
-  
-  return climateMap[location] || 'tropical';
+
+  return climateMap[city] || 'tropical';
+}
+
+// Nomes em português para exibição e prompts
+export const CLIMATE_LABEL_PT: Record<string, string> = {
+  tropical: 'tropical',
+  subtropical: 'subtropical',
+  temperate: 'temperado',
+  arid: 'árido',
+  mediterranean: 'mediterrâneo',
+  continental: 'continental',
+};
+
+// Hook para detectar clima baseado na localização
+export function useClimateFromLocation(location: string | null): string {
+  return climateForCity(location);
 }

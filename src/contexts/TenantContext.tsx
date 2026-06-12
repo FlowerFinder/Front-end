@@ -44,10 +44,17 @@ export function TenantProvider({ children }: { children: ReactNode }) {
     setTenant(currentTenant);
     
     // Verificar se há estado salvo no localStorage
-    const savedState = localStorage.getItem(`floraconcierge_state_${currentTenant.id}`);
+    const savedState = localStorage.getItem(`flowerfinder_state_${currentTenant.id}`);
     if (savedState) {
       try {
         const parsed = JSON.parse(savedState);
+        // Sanear cidades inválidas salvas por versões antigas do chat
+        // (ex.: "Usar" extraído de "Usar minha localização")
+        const savedCity = parsed?.preferences?.city;
+        if (savedCity && /usar|localiza|permitir/i.test(savedCity)) {
+          delete parsed.preferences.city;
+          delete parsed.preferences.state;
+        }
         setAppState(prev => ({ ...prev, ...parsed }));
       } catch (e) {
         console.error('Erro ao carregar estado:', e);
@@ -68,7 +75,7 @@ export function TenantProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!isLoading) {
       localStorage.setItem(
-        `floraconcierge_state_${tenant.id}`,
+        `flowerfinder_state_${tenant.id}`,
         JSON.stringify({
           preferences: appState.preferences,
           favorites: appState.favorites,
@@ -128,7 +135,7 @@ export function TenantProvider({ children }: { children: ReactNode }) {
   };
 
   const setView = (view: ViewType) => {
-    setAppState(prev => ({ ...prev, currentView: view }));
+    setAppState(prev => ({ ...prev, currentView: view, previousView: prev.currentView }));
     // Scroll para o topo
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };

@@ -139,6 +139,7 @@ export interface QuizOption {
 
 export interface AppState {
   currentView: ViewType;
+  previousView?: ViewType;
   isKioskMode: boolean;
   preferences: UserPreferences;
   searchResults: Plant[];

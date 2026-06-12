@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTenant } from '@/contexts/TenantContext';
 import { usePlantSuggestions, useFavorites } from '@/hooks/usePlantSuggestions';
-import { 
-  ArrowLeft, Heart, MapPin, Sparkles, 
-  ShoppingCart, Check, X, ChevronDown, SlidersHorizontal
+import {
+  ArrowLeft, Heart, MapPin, Sparkles,
+  ShoppingCart, Check, X, ChevronDown, SlidersHorizontal, Search, Loader2
 } from 'lucide-react';
+import { searchByTextEmbedding, type VectorHit } from '@/lib/db';
+import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -16,6 +18,9 @@ import {
   DropdownMenuTrigger 
 } from '@/components/ui/dropdown-menu';
 import { plantCategories } from '@/data/plants';
+import { PlantDetailDialog } from '@/components/PlantDetailDialog';
+import { TenantBrand } from '@/components/TenantBrand';
+import type { Plant } from '@/types';
 import { cn } from '@/lib/utils';
 
 export function ResultsPage() {
@@ -23,7 +28,11 @@ export function ResultsPage() {
   const { preferences } = appState;
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<'relevance' | 'price-asc' | 'price-desc' | 'name'>('relevance');
-  
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchHits, setSearchHits] = useState<VectorHit[] | null>(null);
+  const [searchState, setSearchState] = useState<'idle' | 'loading-model' | 'searching'>('idle');
+  const [detailPlant, setDetailPlant] = useState<Plant | null>(null);
+
   const { 
     suggestions, 
     isLoading, 
@@ -41,21 +50,79 @@ export function ResultsPage() {
   }, []);
 
   // Aplicar filtros
-  const filteredSuggestions = selectedCategory 
+  const filteredSuggestions = selectedCategory
     ? filterByCategory(selectedCategory)
     : suggestions;
+
+  // Resultados da busca vetorial têm prioridade sobre os do quiz/chat.
+  // Similaridades de cosseno do e5 se concentram em ~0.80-0.90, então o score
+  // exibido é rescalado dentro do conjunto retornado (melhor hit ≈ 98%).
+  let displayResults = filteredSuggestions;
+  if (searchHits) {
+    // O filtro de categoria também vale para a busca semântica
+    const inCategory = selectedCategory
+      ? searchHits.filter((h) => h.plant.category === selectedCategory)
+      : searchHits;
+    // Corte de relevância: mantém só hits próximos do melhor (evita encher a
+    // lista com correspondências fracas quando a consulta é específica).
+    const best = inCategory[0]?.similarity ?? 0;
+    const relevant = inCategory.filter((h) => h.similarity >= best - 0.035);
+    const sims = relevant.map((h) => h.similarity);
+    const max = Math.max(...sims);
+    const min = Math.min(...sims);
+    const spread = Math.max(max - min, 1e-6);
+    displayResults = relevant.map((hit) => ({
+      plant: hit.plant,
+      matchScore: Math.round(60 + 38 * ((hit.similarity - min) / spread)),
+      matchReasons: ['Correspondência com sua busca'],
+    }));
+  }
 
   // Aplicar ordenação
   useEffect(() => {
     setSortType(sortBy);
   }, [sortBy, setSortType]);
 
+  // De onde o usuário entrou na vitrine (chat ou quiz) — capturado na montagem
+  const cameFromChat = useRef(appState.previousView === 'chat');
+
   const handleBack = () => {
-    setView('quiz-step-4');
+    setView(cameFromChat.current ? 'chat' : 'quiz-step-4');
   };
 
   const handleCategoryFilter = (category: string | null) => {
     setSelectedCategory(category);
+  };
+
+  // Busca vetorial: embedding da pergunta no navegador (e5-small via
+  // transformers.js) + ranking por cosseno no DuckDB-WASM sobre o parquet.
+  const handleSemanticSearch = async () => {
+    const query = searchQuery.trim();
+    if (!query || searchState !== 'idle') return;
+    try {
+      setSearchState('loading-model');
+      // Import dinâmico: transformers.js (~30 MB de modelo) só carrega na primeira busca
+      const { embedQuery } = await import('@/lib/embedder');
+      // Os passages das plantas mencionam o clima em português — anexar o
+      // clima da cidade aproxima a consulta das plantas adaptadas à região
+      const { climateForCity, CLIMATE_LABEL_PT } = await import('@/hooks/useGeolocation');
+      const withLocation = preferences.city
+        ? `${query} (clima ${CLIMATE_LABEL_PT[climateForCity(preferences.city)] ?? 'tropical'})`
+        : query;
+      const queryEmb = await embedQuery(withLocation);
+      setSearchState('searching');
+      const hits = await searchByTextEmbedding(queryEmb, tenant.id, 24);
+      setSearchHits(hits);
+    } catch (err) {
+      console.error('Erro na busca semântica:', err);
+    } finally {
+      setSearchState('idle');
+    }
+  };
+
+  const clearSemanticSearch = () => {
+    setSearchHits(null);
+    setSearchQuery('');
   };
 
   const handleStartOver = () => {
@@ -121,7 +188,9 @@ export function ResultsPage() {
               <ArrowLeft className="w-4 h-4" />
               Voltar
             </Button>
-            
+
+            <TenantBrand />
+
             <Button
               variant="ghost"
               size="sm"
@@ -156,15 +225,75 @@ export function ResultsPage() {
               )}
             </div>
             
-            <span 
+            <span
               className="text-sm"
               style={{ color: tenant.theme.colors.textMuted }}
             >
-              {filteredSuggestions.length} resultado{filteredSuggestions.length !== 1 ? 's' : ''}
+              {displayResults.length} resultado{displayResults.length !== 1 ? 's' : ''}
             </span>
           </div>
         </div>
       </header>
+
+      {/* Busca semântica (vetorial, 100% no navegador) */}
+      <div
+        className="w-full px-4 sm:px-6 lg:px-8 py-4"
+        style={{ borderBottom: `1px solid ${tenant.theme.colors.border}` }}
+      >
+        <div className="max-w-6xl mx-auto space-y-2">
+          <div className="flex gap-2">
+            <Input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleSemanticSearch()}
+              placeholder='Busca inteligente: ex. "planta que purifica o ar para apartamento escuro"'
+              className="flex-1"
+              disabled={searchState !== 'idle'}
+              style={{ borderColor: tenant.theme.colors.border }}
+            />
+            <Button
+              onClick={handleSemanticSearch}
+              disabled={!searchQuery.trim() || searchState !== 'idle'}
+              className="gap-2"
+              style={{ backgroundColor: tenant.theme.colors.primary }}
+            >
+              {searchState === 'idle' ? (
+                <Search className="w-4 h-4" />
+              ) : (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              )}
+              <span className="hidden sm:inline">
+                {searchState === 'loading-model'
+                  ? 'Carregando IA...'
+                  : searchState === 'searching'
+                    ? 'Buscando...'
+                    : 'Buscar com IA'}
+              </span>
+            </Button>
+          </div>
+          {searchHits && (
+            <div className="flex items-center gap-2 text-sm">
+              <Badge
+                variant="secondary"
+                style={{
+                  backgroundColor: `${tenant.theme.colors.primary}15`,
+                  color: tenant.theme.colors.primary,
+                }}
+              >
+                <Sparkles className="w-3 h-3 mr-1" />
+                Busca semântica ativa
+              </Badge>
+              <button
+                onClick={clearSemanticSearch}
+                className="underline"
+                style={{ color: tenant.theme.colors.textMuted }}
+              >
+                Voltar às sugestões do quiz
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* Filtros e ordenação */}
       <div 
@@ -259,7 +388,7 @@ export function ResultsPage() {
       {/* Grid de resultados */}
       <main className="flex-1 px-4 sm:px-6 lg:px-8 py-6">
         <div className="max-w-6xl mx-auto">
-          {filteredSuggestions.length === 0 ? (
+          {displayResults.length === 0 ? (
             <div className="text-center py-12">
               <div 
                 className="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4"
@@ -291,18 +420,21 @@ export function ResultsPage() {
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
-              {filteredSuggestions.map((result) => (
+              {displayResults.map((result) => (
                 <PlantCard
                   key={result.plant.id}
                   result={result}
                   isFavorite={isFavorite(result.plant.id)}
                   onToggleFavorite={() => toggleFavorite(result.plant.id)}
+                  onOpenDetail={() => setDetailPlant(result.plant as Plant)}
                 />
               ))}
             </div>
           )}
         </div>
       </main>
+
+      <PlantDetailDialog plant={detailPlant} onClose={() => setDetailPlant(null)} />
     </div>
   );
 }
@@ -328,9 +460,10 @@ interface PlantCardProps {
   };
   isFavorite: boolean;
   onToggleFavorite: () => void;
+  onOpenDetail: () => void;
 }
 
-function PlantCard({ result, isFavorite, onToggleFavorite }: PlantCardProps) {
+function PlantCard({ result, isFavorite, onToggleFavorite, onOpenDetail }: PlantCardProps) {
   const { tenant } = useTenant();
   const { plant, matchScore, matchReasons } = result;
 
@@ -363,7 +496,10 @@ function PlantCard({ result, isFavorite, onToggleFavorite }: PlantCardProps) {
       }}
     >
       {/* Imagem */}
-      <div className="relative aspect-square overflow-hidden bg-gray-100">
+      <div
+        className="relative aspect-square overflow-hidden bg-gray-100 cursor-pointer"
+        onClick={onOpenDetail}
+      >
         <img
           src={plant.image}
           alt={plant.name}
@@ -399,7 +535,10 @@ function PlantCard({ result, isFavorite, onToggleFavorite }: PlantCardProps) {
 
         {/* Botão de favorito */}
         <button
-          onClick={onToggleFavorite}
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleFavorite();
+          }}
           className="absolute bottom-3 right-3 w-10 h-10 rounded-full flex items-center justify-center transition-colors"
           style={{ 
             backgroundColor: isFavorite 
@@ -449,9 +588,10 @@ function PlantCard({ result, isFavorite, onToggleFavorite }: PlantCardProps) {
         </div>
 
         {/* Nome */}
-        <h3 
-          className="font-semibold text-lg mb-1 line-clamp-1"
+        <h3
+          className="font-semibold text-lg mb-1 line-clamp-1 cursor-pointer hover:underline"
           style={{ color: tenant.theme.colors.text }}
+          onClick={onOpenDetail}
         >
           {plant.name}
         </h3>
